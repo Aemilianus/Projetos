@@ -1,0 +1,172 @@
+---
+title: "Análise dos Comentários da Play Store"
+author: "Felipe Fenelon"
+output:
+  html_document:
+    theme: flatly
+    df_print: paged
+    
+---
+
+## Sobre este Trabalho
+
+Aqui, foi desenvolvido um estudo com uso de processamento de linguagem natural, NLP, sobre os comentários feitos na loja de aplicativos Play Store sobre o app Getnet Brasil.
+O desenvolvimento passou por diferentes etapas, sendo cada uma dela explicada aqui, porém não de forma completa e didática, logo muito parte do leitor. Todas as referências estarão na seção devida e os códigos estão abertos para acompanhamento.  
+Quaisquer dúvidas: felipe.machado@getnet.com.br
+  
+## Etapas da Análise {.tabset .tabset-fade .tabset-pills}
+
+```{r setup, warning=FALSE,include = TRUE, echo = F, error = FALSE, message = FALSE,warning = FALSE,results = "hide"}
+
+knitr::opts_chunk$set(
+  include = TRUE,
+	echo = T,
+	error = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	results = "hide"
+)
+```
+
+### Pacotes utilizados
+```{r}
+#Pacote necessários
+# Para leitura da base
+library(readr)
+
+# Manipulação
+library(dplyr)
+
+# Análise dos Textos e Visualização
+library(tidytext)
+library(ggthemes)
+library(stringr)
+library(ggplot2)
+```
+
+### Web Scraping
+Aqui é uma parte do código que precisou se feita em Python, pois já existe uma biblioteca para isso **google_play_scraper**. O computador da Getnet não rodou esse *script*, pois o meu usuário não é um desenvolvedor, então não possui certas liberdades pela internet, mas foi dado um jeito, então o código para retirar as avaliações da loja está aqui. 
+```{r eval=FALSE}
+# Pacotes importados necessários
+import pandas as pd
+from tqdm import tqdm
+
+from google_play_scraper import  reviews, app
+
+# Vetor com o nome do app
+apps_ids = ['br.com.getnet.supergetmobile']
+
+# Vetor com as informações separadas do app
+app_infos = []
+
+for ap in tqdm(apps_ids):
+    info = app(ap, lang='pt', country='br')
+    del info['comments']
+    app_infos.append(info)
+    
+# Informações do app_infos
+app_infos_df = pd.DataFrame(app_infos)
+app_infos_df.head(2)
+
+# Looping para pegar as reviews
+
+rvs,_ = reviews(
+    'br.com.getnet.supergetmobile',
+    lang='pt',
+    country='br',
+    sort='newest',
+    count=6000
+)
+
+# Acumulando em um Data Frame
+df = pd.DataFrame(rvs)
+
+# Exportando as respostas para um arquivo CSV
+df.to_csv('C:\\Users\\felipe\\Desktop\\Reviews Google Play\\reviews.csv',
+          index=None, header=True)
+```
+
+### Leitura e tratamento dos dados obtidos
+
+O arquivo com os comentários estão em um caminho na rede do departamento. É bem pequena, algo em torno de 4 mil comentários, hoje dia 29/08/2023, com atualização D-1. Após extrair os comentários, as análises são feitas no R mesmo.
+```{r}
+# Importando a base com os reviews
+
+reviews <- read_csv(
+  paste("F:/VP NEGOCIOS E MARKETING/CANAIS RELACIONAIS/Reportes Mensais e Estudos"
+        ,"Reviews das Lojas/reviewsPS.csv",sep = "/")
+  )
+```
+A maioria das colunas não serão úteis, então tirei quase tudo, restando apenas content, score e appVersion, respectivamente o comentário, nota e versão do app que o usuário possui. Os dados são strings, enão já dá para passar para a leitura dos comentários.  
+As pessoas escrevem de diversar maneiras: com gírias, normal culta, de forma errada etc.. Logo, fica difícil trabalhar com o texto bruto, pois às vezes alguém escreve: "Muito ruim."; mas em outras: "mt rim". Porém querem dizer a mesma coisa. Então aqui entra uma parte muito, mas necessária, que é a tentativa de padronização. Não existe um fim, o máximo que dá para fazer e tentar deixa as coisas mais simples de entender.  
+As mudanças foram feitas tilizando várias funções do pacote **stringr**. 
+
+
+```{r}
+# Pegando as colunas de interesse
+ reviews <- reviews %>% select(at,content, score, appVersion)
+
+```
+Existem alguns NAs na base, mas não tem o que fazer nesse caso e nem vale a pena tentar imputar.
+Além disso, as avaliações da versão beta foram retiradas, por sem um público fechado.
+```{r }
+# Vendo a quantidade de comentários por versão
+# reviews %>% count(appVersion) %>% arrange((appVersion))
+
+# Achando em quais linhas estão a versão beta
+linhas_beta = str_detect(reviews$appVersion,"beta")
+
+#substituindo os NAs resultantes por FALSE
+linhas_beta[is.na(linhas_beta)] = FALSE
+
+# Tirando essas linhas do dataframe reviews. OU melhor dizendo, pegando apenas onde é de interesse
+reviews = reviews[!linhas_beta,]
+
+# Visualizando
+# reviews %>% count(appVersion) %>% arrange((appVersion)) 
+```
+
+Limpando a coluna de versão para manter apenas o 3 primeiros algorismo
+
+```{r}
+reviews = reviews %>% mutate(appVersion = str_sub(reviews$appVersion, 1,5))
+```
+Formatando a data para ficar mais legível e sem o horário da avaliação. Apesar de que, talvez, o horário seja interessante analisar, mas em outro momento. Aqui o foco é o conteúdo do comentário.
+```{r}
+reviews =
+  reviews %>%
+  mutate(at = format(as.Date(reviews$at ), "%d/%m/%y"))
+```
+Aqui, uma tentativa de padronizar as escritas é realizada. Vávrias palavras são digitadas erradas e isso pode atrapalhar um pouco no que o usuário quer dizer, do ponto de vista do computador. O erros mais comuns foram corrigidos, mas há sempre novas surpresas, pois são pessoas escrevendo. Não vale o esforço de corrigir um a um, mas os principais já ajudam muito.
+
+```{r}
+# Deixando tudo minúsculo para facilitar o trabalho
+reviews = 
+  reviews %>%
+    mutate(content = str_to_lower(content))
+
+# Mudando a escrita
+reviews =
+  reviews %>%
+    mutate(
+      content3 = stringi::stri_replace_all_fixed(
+        str = content,
+        pattern = c(" q ", " pq ","vc"," tb ", " p "),
+        replacement = c(" que ", " porque "," você", " também "," para "),
+        vectorize_all = FALSE
+      )
+    )
+
+# Limpando pontuaçõese números
+reviews = 
+  reviews %>% 
+  mutate(content3 = gsub("[^a-záéíóúâêîôûãõç']+", " ", reviews$content3))
+
+# Criando os tokens de cada comentário. 
+
+teste = reviews %>% 
+  unnest_tokens(input = "content3", output = "term") %>%
+  mutate(term = str_extract(term, regex("[a-záéíóúâêîôûãõç']+"))) %>% 
+  filter(!is.na(term))
+```
+
