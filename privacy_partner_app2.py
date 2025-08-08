@@ -7,17 +7,16 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 # Importando os reconhecedores que queremos USAR
-from presidio_analyzer.predefined_recognizers import PhoneRecognizer, EmailRecognizer
+from presidio_analyzer.predefined_recognizers import EmailRecognizer
 
 # --- Reconhecedor de CPF Customizado e Inteligente ---
 class CustomBrCpfRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.8)] # Aumentamos o score base
+    PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.8)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="BR_CPF", name="Custom CPF Recognizer (with Checksum)", patterns=self.PATTERNS, **kwargs)
     def validate_result(self, pattern_text: str) -> bool:
         cpf = "".join(re.findall(r'\d', pattern_text))
         if len(cpf) != 11 or len(set(cpf)) == 1: return False
-        # Cálculo dos dígitos verificadores (algoritmo padrão do CPF)
         soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
         d1 = 11 - (soma % 11)
         if d1 >= 10: d1 = 0
@@ -41,30 +40,19 @@ def get_analyzer():
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     
-    # --- CONFIGURAÇÃO REFINADA DO ANALYZER ---
+    # --- CONFIGURAÇÃO SIMPLIFICADA DO ANALYZER ---
+    # Inicializa o motor sem filtros, vamos aplicá-los depois.
     analyzer = AnalyzerEngine(
         nlp_engine=nlp_engine,
-        supported_languages=["pt"],
-        # Define quais entidades o motor principal (Spacy) deve procurar.
-        # Deixamos apenas 'PERSON' (nomes de pessoas) e removemos 'LOCATION', 'ORGANIZATION', etc.
-        # para reduzir falsos positivos em perguntas genéricas.
-        ner_model_configuration={"labels_to_ignore": ["LOCATION", "ORGANIZATION", "DATE_TIME", "NRP", "FINANCIAL"]}
+        supported_languages=["pt"]
     )
     
-    # Removemos os reconhecedores padrão que são muito genéricos ou não se aplicam ao Brasil.
-    analyzer.registry.remove_recognizer("CreditCardRecognizer")
-    analyzer.registry.remove_recognizer("IpRecognizer")
-    
-    # Adicionamos os nossos reconhecedores "especialistas" de alta precisão
+    # Adicionamos os nossos reconhecedores "especialistas"
     analyzer.registry.add_recognizer(CustomBrCpfRecognizer())
     analyzer.registry.add_recognizer(CustomBrPhoneRecognizer())
-    analyzer.registry.add_recognizer(EmailRecognizer()) # Adicionamos o especialista em E-mail
+    analyzer.registry.add_recognizer(EmailRecognizer())
     
     return analyzer
-
-# (O resto do código permanece o mesmo)
-# ... (cole o restante do código da versão anterior aqui) ...
-# O código completo está abaixo para facilitar
 
 # --- Configuração e carregamento do modelo Gemini ---
 @st.cache_resource
@@ -96,13 +84,17 @@ if 'messages' not in st.session_state: st.session_state.messages = []
 if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
+# Lista de entidades que consideramos PII de alto risco
+entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON"]
+
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
 
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON"])
+        # --- MUDANÇA APLICADA AQUI ---
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii, score_threshold=0.7)
         if analyzer_results:
             st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
@@ -130,7 +122,8 @@ if prompt:
             st.markdown(prompt)
 
         with st.spinner("Privacy Partner analisando..."):
-            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON"])
+            # --- MUDANÇA APLICADA AQUI ---
+            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=entidades_pii, score_threshold=0.7)
 
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
