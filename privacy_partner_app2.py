@@ -24,16 +24,12 @@ class CustomBrPhoneRecognizer(PatternRecognizer):
 # --- Carregamento dos Motores (Versão Simplificada e Robusta) ---
 @st.cache_resource
 def get_analyzer():
-    # 1. Começamos com um registro vazio
     registry = RecognizerRegistry()
-    
-    # 2. Adicionamos APENAS os especialistas que confiamos
     registry.add_recognizer(CustomBrCpfRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomAddressRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomBrPhoneRecognizer(supported_language="pt"))
     registry.add_recognizer(EmailRecognizer(supported_language="pt"))
     
-    # 3. Criamos o Analyzer Engine apenas com nosso registro customizado, sem NLP Engine complexo
     analyzer = AnalyzerEngine(
         registry=registry,
         supported_languages=["pt"]
@@ -118,6 +114,7 @@ st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to
                 st.session_state.file_is_safe = True
                 st.session_state.file_content = df.to_string()
         
+        # Bloco "except" que estava faltando e agora foi corrigido:
         except Exception as e:
             st.error(f"Could not read the CSV file. Please ensure it is a valid CSV. Error: {e}")
             st.session_state.file_is_safe = False
