@@ -7,13 +7,20 @@ from presidio_anonymizer.entities import OperatorConfig
 # --- Configuração do Presidio (Nossos "Especialistas") ---
 @st.cache_resource
 def get_analyzer_and_anonymizer():
-    # Reconhecedor de CPF
-    cpf_recognizer = PatternRecognizer(supported_entity="BR_CPF", name="CPF Recognizer",
-                                       patterns=[Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)])
+    # Reconhecedor de CPF com idioma explicitamente definido
+    cpf_recognizer = PatternRecognizer(
+        supported_entity="BR_CPF",
+        name="CPF Recognizer",
+        patterns=[Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)],
+        supported_language="pt"
+    )
     
-    registry = RecognizerRegistry()
+    # --- CORREÇÃO APLICADA AQUI ---
+    # O registro agora é explicitamente criado para Português
+    registry = RecognizerRegistry(supported_languages=["pt"])
     registry.add_recognizer(cpf_recognizer)
     
+    # Agora o motor e o registro estão alinhados em 'pt'
     analyzer = AnalyzerEngine(registry=registry, supported_languages=["pt"])
     anonymizer = AnonymizerEngine()
     
