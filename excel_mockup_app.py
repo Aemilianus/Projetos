@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from presidio_analyzer import AnalyzerEngine, PatternRecognizer, RecognizerRegistry
+from presidio_analyzer import AnalyzerEngine, PatternRecognizer, RecognizerRegistry, Pattern
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
