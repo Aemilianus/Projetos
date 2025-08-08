@@ -5,51 +5,51 @@ import google.generativeai as genai
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
-from presidio_analyzer.predefined_recognizers import EmailRecognizer
-
-# --- Custom Recognizers ---
+ 
+# --- Custom Recognizers for Portuguese Patterns ---
 class CustomBrCpfRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="BR_CPF", name="Custom CPF Recognizer", patterns=self.PATTERNS, **kwargs)
-
+ 
 class CustomAddressRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.8)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
-
+ 
 class CustomBrPhoneRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer", patterns=self.PATTERNS, **kwargs)
-
+ 
 # --- Engine Loading and Configuration ---
 @st.cache_resource
 def get_analyzer():
-    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}]}
+    # NLP Engine is configured for Portuguese to understand the prompts
+    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     
-    registry = RecognizerRegistry()
+    registry = RecognizerRegistry(supported_languages=["pt"])
+    registry.load_predefined_recognizers(languages=["pt"])
     
+    # Add our custom recognizers for Portuguese
     registry.add_recognizer(CustomBrCpfRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomAddressRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomBrPhoneRecognizer(supported_language="pt"))
-    registry.add_recognizer(EmailRecognizer())
     
     analyzer = AnalyzerEngine(
         nlp_engine=nlp_engine,
         registry=registry,
-        supported_languages=["en", "pt"]
+        supported_languages=["pt"]
     )
-    
     return analyzer
-
+ 
 @st.cache_resource
 def get_gemini_model():
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     return genai.GenerativeModel('gemini-1.5-flash-latest')
-
+ 
 try:
     analyzer = get_analyzer()
     gemini_model = get_gemini_model()
@@ -59,44 +59,45 @@ try:
 except Exception as e:
     st.error(f"Loading error. Please check your API key and files. Error: {e}")
     st.stop()
-
-# --- Mockup Interface ---
+ 
+# --- Mockup Interface (in English) ---
 with st.sidebar:
-    st.write(" Recent Chats")
+    st.write("Recent Chats")
     st.button("💬 Campaign Analysis", use_container_width=True)
     st.button("📊 Sales Report", use_container_width=True)
-
+ 
 st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>L'ORÉAL GPT</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Privacy Partner Demonstration</h3>", unsafe_allow_html=True)
 st.write("")
-
+ 
 if 'messages' not in st.session_state: st.session_state.messages = []
 if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
-
+ 
 uploaded_file = st.file_uploader("Or, attach a file (.csv) to use as context:", type=["csv"])
 if uploaded_file:
     with st.spinner("Analyzing file..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
+        # Analysis is set to Portuguese
         analyzer_results = analyzer.analyze(text=file_content_string, language="pt")
         if analyzer_results:
-            st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive data. Chat is locked.")
+st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive data. Chat is locked.")
             st.session_state.file_is_safe = False
         else:
-            st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
+st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
             st.session_state.file_is_safe = True
             st.session_state.file_content = file_content_string
 else:
     st.session_state.file_is_safe = True
     st.session_state.file_content = None
-
+ 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"], unsafe_allow_html=True)
-
+ 
 prompt = st.chat_input("Enter your prompt or paste text to analyze...")
-
+ 
 if prompt:
     if not st.session_state.file_is_safe:
         st.warning("Cannot process prompt because the attached file contains sensitive data. Please remove the file to continue.")
@@ -105,6 +106,7 @@ if prompt:
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.spinner("Privacy Partner analyzing..."):
+            # Analysis is set to Portuguese
             analyzer_results = analyzer.analyze(text=prompt, language="pt")
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
@@ -118,8 +120,7 @@ if prompt:
                 f"---\n"
                 f"**Recommended Action:** Please remove the identified personal data and try submitting your prompt again."
             )
-            # --- LINK ATUALIZADO AQUI ---
-            link_markdown = "<a href='https://www.lorealanywhere.com/redir/352098' target='_blank' style='color: #0073e6; text-decoration: none;'>Learn more about protecting sensitive data.</a>"
+link_markdown = f"https://www.lorealanywhere.com/redir/352098' target='_blank' style='color: #0073e6; text-decoration: none;'>Learn more about protecting sensitive data.</a>"
             
             st.session_state.messages.append({"role": "assistant", "content": f"{alert_message}\n\n{link_markdown}"})
             with st.chat_message("assistant"):
