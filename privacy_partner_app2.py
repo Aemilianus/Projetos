@@ -1,17 +1,71 @@
 import streamlit as st
 import pandas as pd
-from presidio_analyzer import AnalyzerEngine
+import re
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
-# --- Importar os Reconhecedores Específicos ---
-from presidio_analyzer.predefined_recognizers import BrCpfRecognizer, PhoneRecognizer
+# --- Importar o Reconhecedor de Telefone ---
+from presidio_analyzer.predefined_recognizers import PhoneRecognizer
+
+# --- Reconhecedor de CPF Customizado e Inteligente ---
+class CustomBrCpfRecognizer(PatternRecognizer):
+    """
+    Reconhecedor de CPF Brasileiro que valida o checksum (dígitos verificadores)
+    e aceita formatos com ou sem pontuação.
+    """
+    # Regex para pegar CPF com ou sem pontuação (ex: 123.456.789-00 ou 12345678900)
+    PATTERNS = [
+        Pattern(
+            name="cpf",
+            regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b",
+            score=0.5, # Score inicial antes da validação
+        ),
+    ]
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            supported_entity="BR_CPF",
+            name="Custom CPF Recognizer (with Checksum)",
+            patterns=self.PATTERNS,
+            **kwargs,
+        )
+
+    def validate_result(self, pattern_text: str) -> bool:
+        """
+        Valida o CPF encontrado usando o algoritmo de checksum.
+        """
+        # Limpa a string, removendo tudo que não for dígito
+        cpf = "".join(re.findall(r'\d', pattern_text))
+
+        # Verifica se o CPF tem 11 dígitos e se não são todos iguais
+        if len(cpf) != 11 or len(set(cpf)) == 1:
+            return False
+
+        # Validação do primeiro dígito verificador
+        soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
+        digito1 = (soma * 10) % 11
+        if digito1 == 10:
+            digito1 = 0
+        if digito1 != int(cpf[9]):
+            return False
+
+        # Validação do segundo dígito verificador
+        soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
+        digito2 = (soma * 10) % 11
+        if digito2 == 10:
+            digito2 = 0
+        if digito2 != int(cpf[10]):
+            return False
+
+        # Se todas as validações passaram, o CPF é válido
+        return True
+
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
-    """Cria e configura o motor de análise do Presidio com reconhecedores customizados."""
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]
@@ -24,14 +78,14 @@ def get_analyzer():
         supported_languages=["pt"]
     )
     
-    analyzer.registry.add_recognizer(BrCpfRecognizer())
+    # Adicionando nossos reconhecedores "especialistas"
+    analyzer.registry.add_recognizer(CustomBrCpfRecognizer())
     analyzer.registry.add_recognizer(PhoneRecognizer(supported_regions=["BR"]))
     
     return analyzer
 
 @st.cache_resource
 def get_anonymizer():
-    """Cria o motor de anonimização."""
     return AnonymizerEngine()
 
 try:
@@ -39,68 +93,54 @@ try:
     anonymizer = get_anonymizer()
     st.set_page_config(page_title="Privacy Partner Demo", layout="centered")
 
-    # Carrega o arquivo CSS (se existir)
-    try:
-        with open(".streamlit/style.css") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-    except FileNotFoundError:
-        # Se o arquivo CSS não for encontrado, não faz nada.
-        pass
+    with open(".streamlit/style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"Erro ao carregar modelos: {e}")
     st.stop()
 
 # --- Interface do Mockup ---
-
-# Sidebar
 with st.sidebar:
     st.write(" Chats Recentes")
     st.button("💬 Análise de Campanha", use_container_width=True)
     st.button("📊 Relatório de Vendas", use_container_width=True)
 
-# --- BLOCO DE TÍTULO (SEM LOGO) ---
 st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>L'ORÉAL GPT</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Demonstração do Privacy Partner</h3>", unsafe_allow_html=True)
 st.write("")
 
-# Inicializa o estado da sessão
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 if 'file_is_safe' not in st.session_state:
     st.session_state.file_is_safe = True
 
-# Bloco para Upload e Análise de Arquivo
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
 
 if uploaded_file:
-    with st.spinner("Analisando arquivo em busca de riscos de privacidade..."):
+    with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
         analyzer_results = analyzer.analyze(text=file_content_string, language="pt")
 
         if analyzer_results:
-            st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis e não pode ser usado. O chat está bloqueado até que o arquivo seja removido.")
+            st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
         else:
-            st.success(f"✅ **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` foi analisado e é seguro para uso.")
+            st.success(f"✅ **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` é seguro para uso.")
             st.session_state.file_is_safe = True
 else:
-    # Garante que o chat seja liberado se o arquivo for removido
-    if not st.session_state.get('file_uploader_key', True):
-        st.session_state.file_is_safe = True
+    st.session_state.file_is_safe = True
 
-# Exibe as mensagens do histórico
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Input do usuário
 prompt = st.chat_input("Digite seu prompt ou cole um texto para análise...")
 
 if prompt:
     if not st.session_state.file_is_safe:
-        st.warning("Não é possível processar seu prompt pois o arquivo anexado contém dados sensíveis. Por favor, remova o arquivo para continuar.")
+        st.warning("Não é possível processar seu prompt pois o arquivo anexado contém dados sensíveis. Remova o arquivo para continuar.")
     else:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -110,12 +150,22 @@ if prompt:
             analyzer_results = analyzer.analyze(text=prompt, language="pt")
 
         if analyzer_results:
-            alert_message = "🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\nO seu prompt contém dados sensíveis e não será processado. Por favor, remova as informações e tente novamente."
+            alert_message = f"""
+            🚨 **ALERTA DO PRIVACY PARTNER!** 🚨
+
+            Seu prompt contém **{len(analyzer_results)}** tipo(s) de informações sensíveis e não será processado.
+            
+            **Riscos Detectados:**
+            """
+            tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
+            for tipo in tipos_de_risco:
+                alert_message += f"\n- {tipo}"
+            
             st.session_state.messages.append({"role": "assistant", "content": alert_message})
             with st.chat_message("assistant"):
                 st.warning(alert_message)
         else:
-            response_message = "✅ **Privacy Partner:** Nenhuma informação sensível detectada no prompt. \n\n (Aqui viria a resposta normal do L'Oréal GPT...)"
+            response_message = "✅ **Privacy Partner:** Nenhuma informação sensível detectada. \n\n (Aqui viria a resposta normal do L'Oréal GPT...)"
             st.session_state.messages.append({"role": "assistant", "content": response_message})
             with st.chat_message("assistant"):
                 st.success(response_message)
