@@ -26,24 +26,21 @@ class CustomBrPhoneRecognizer(PatternRecognizer):
 # --- Engine Loading and Configuration ---
 @st.cache_resource
 def get_analyzer():
-    # Using 'en' for spaCy model since Presidio's base is English, but our custom recognizers will handle Portuguese patterns.
-    # For a production app, one might use a multi-language model. For this demo, this is stable.
     provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     
     registry = RecognizerRegistry()
     
-    # Add our custom recognizers for Portuguese patterns
     registry.add_recognizer(CustomBrCpfRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomAddressRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomBrPhoneRecognizer(supported_language="pt"))
-    registry.add_recognizer(EmailRecognizer()) # Email is language-agnostic
+    registry.add_recognizer(EmailRecognizer())
     
     analyzer = AnalyzerEngine(
         nlp_engine=nlp_engine,
         registry=registry,
-        supported_languages=["en", "pt"] # Support both
+        supported_languages=["en", "pt"]
     )
     
     return analyzer
@@ -121,7 +118,8 @@ if prompt:
                 f"---\n"
                 f"**Recommended Action:** Please remove the identified personal data and try submitting your prompt again."
             )
-            link_markdown = "<a href='http://www.loreal.com/privacy' target='_blank' style='color: #0073e6; text-decoration: none;'>Learn more about protecting sensitive data.</a>"
+            # --- LINK ATUALIZADO AQUI ---
+            link_markdown = "<a href='https://www.lorealanywhere.com/redir/352098' target='_blank' style='color: #0073e6; text-decoration: none;'>Learn more about protecting sensitive data.</a>"
             
             st.session_state.messages.append({"role": "assistant", "content": f"{alert_message}\n\n{link_markdown}"})
             with st.chat_message("assistant"):
