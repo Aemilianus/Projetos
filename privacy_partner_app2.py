@@ -14,7 +14,7 @@ class CustomBrCpfRecognizer(PatternRecognizer):
         super().__init__(supported_entity="BR_CPF", name="Custom CPF Recognizer", patterns=self.PATTERNS, **kwargs)
 
 class CustomAddressRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.7)]
+    PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.8)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
 
@@ -26,11 +26,6 @@ class CustomBrPhoneRecognizer(PatternRecognizer):
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
-    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
-    provider = NlpEngineProvider(nlp_configuration=provider_config)
-    nlp_engine = provider.create_engine()
-    
-    # --- CORREÇÃO DE IDIOMA APLICADA AQUI ---
     registry = RecognizerRegistry(supported_languages=["pt"])
     registry.load_predefined_recognizers(languages=["pt"])
     
@@ -39,18 +34,20 @@ def get_analyzer():
     registry.add_recognizer(CustomAddressRecognizer(supported_language="pt"))
     registry.add_recognizer(CustomBrPhoneRecognizer(supported_language="pt"))
     
-    # Removemos reconhecedores genéricos para evitar falsos positivos
-    registry.remove_recognizer("PhoneRecognizer") # Remove o padrão genérico
-    registry.remove_recognizer("CreditCardRecognizer")
-    registry.remove_recognizer("IpRecognizer")
+    # Removemos os reconhecedores padrão que são muito genéricos
+    registry.remove_recognizer("PhoneRecognizer")
     registry.remove_recognizer("DateRecognizer")
     
+    # O motor de linguagem agora será usado apenas para contexto, não para detecção direta de Nomes
+    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
+    provider = NlpEngineProvider(nlp_configuration=provider_config)
+    nlp_engine = provider.create_engine()
+    
     analyzer = AnalyzerEngine(
-        nlp_engine=nlp_engine,
         registry=registry,
+        nlp_engine=nlp_engine,
         supported_languages=["pt"]
     )
-    
     return analyzer
 
 @st.cache_resource
@@ -82,12 +79,15 @@ if 'messages' not in st.session_state: st.session_state.messages = []
 if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
+# Lista de entidades que consideramos PII de alto risco (REMOVEMOS 'PERSON')
+entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "STREET_ADDRESS"]
+
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt")
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii)
         if analyzer_results:
             st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
@@ -113,22 +113,26 @@ if prompt:
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.spinner("Privacy Partner analisando..."):
-            analyzer_results = analyzer.analyze(text=prompt, language="pt")
+            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=entidades_pii)
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
             riscos_formatados = "\n".join([f"- {tipo}" for tipo in tipos_de_risco])
+            
+            # --- MENSAGEM DE BLOQUEIO E HIPERLINK CORRIGIDOS ---
             alert_message = (
                 f"🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\n"
                 f"Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.\n\n"
                 f"**Riscos Potenciais Detectados:**\n"
                 f"{riscos_formatados}\n\n"
                 f"---\n"
-                f"**Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente.\n\n"
-                f"<a href='http://www.loreal.com/privacidade' target='_blank'>Saiba mais sobre como proteger dados sensíveis.</a>"
+                f"**Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente."
             )
-            st.session_state.messages.append({"role": "assistant", "content": alert_message})
+            link_markdown = "<a href='http://www.loreal.com/privacidade' target='_blank' style='color: #0073e6; text-decoration: none;'>Saiba mais sobre como proteger dados sensíveis.</a>"
+            
+            st.session_state.messages.append({"role": "assistant", "content": f"{alert_message}\n\n{link_markdown}"})
             with st.chat_message("assistant"):
                 st.warning(alert_message, icon="⚠️")
+                st.markdown(link_markdown, unsafe_allow_html=True)
         else:
             with st.spinner("Prompt seguro. Enviando para a IA Generativa..."):
                 try:
