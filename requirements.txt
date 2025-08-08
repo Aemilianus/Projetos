@@ -1,10 +1,8 @@
 streamlit
 pandas
+numpy<1.27
 spacy==3.7.2
 presidio-analyzer
 presidio-anonymizer
-google-generativeai
-# Instala o modelo em Português (que nosso código usa ativamente)
+# Instala o modelo em Português (necessário para a análise)
 https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
-# Instala o modelo em Inglês (requerido por uma dependência interna do Presidio)
-https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.0/en_core_web_lg-3.7.0-py3-none-any.whl
