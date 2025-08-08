@@ -3,7 +3,7 @@ from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
-from PIL import Image # Importante: Adicionamos a biblioteca para manipular imagens
+from PIL import Image
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
@@ -50,10 +50,11 @@ with st.sidebar:
     st.button("📝 Ideias para Posts", use_container_width=True)
     st.button("📄 Tradução de Documento", use_container_width=True)
 
-# --- NOVO BLOCO PARA EXIBIR A LOGO ---
+# Bloco para exibir a Logo
 try:
     logo = Image.open("logo_loreal_gpt.png")
-    st.image(logo, use_column_width=True)
+    # CORREÇÃO APLICADA AQUI:
+    st.image(logo, use_column_width=True) # Alterado para o novo parâmetro
 except FileNotFoundError:
     st.title("L'ORÉAL GPT") # Fallback caso a imagem não seja encontrada
 
