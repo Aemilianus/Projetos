@@ -1,14 +1,17 @@
 import streamlit as st
+import pandas as pd
 from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
-from PIL import Image
+
+# --- Importar os Reconhecedores Específicos ---
+from presidio_analyzer.predefined_recognizers import BrCpfRecognizer, PhoneRecognizer
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
-    """Cria e configura o motor de análise do Presidio."""
+    """Cria e configura o motor de análise do Presidio com reconhecedores customizados."""
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]
@@ -20,6 +23,10 @@ def get_analyzer():
         nlp_engine=nlp_engine,
         supported_languages=["pt"]
     )
+    
+    analyzer.registry.add_recognizer(BrCpfRecognizer())
+    analyzer.registry.add_recognizer(PhoneRecognizer(supported_regions=["BR"]))
+    
     return analyzer
 
 @st.cache_resource
@@ -30,11 +37,15 @@ def get_anonymizer():
 try:
     analyzer = get_analyzer()
     anonymizer = get_anonymizer()
-    st.set_page_config(page_title="L'Oréal GPT - Privacy Partner", layout="centered")
+    st.set_page_config(page_title="Privacy Partner Demo", layout="centered")
 
-    # Carrega o arquivo CSS
-    with open(".streamlit/style.css") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    # Carrega o arquivo CSS (se existir)
+    try:
+        with open(".streamlit/style.css") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        # Se o arquivo CSS não for encontrado, não faz nada.
+        pass
 
 except Exception as e:
     st.error(f"Erro ao carregar modelos: {e}")
@@ -42,28 +53,42 @@ except Exception as e:
 
 # --- Interface do Mockup ---
 
-# Sidebar com ícones (simulação)
+# Sidebar
 with st.sidebar:
     st.write(" Chats Recentes")
     st.button("💬 Análise de Campanha", use_container_width=True)
     st.button("📊 Relatório de Vendas", use_container_width=True)
-    st.button("📝 Ideias para Posts", use_container_width=True)
-    st.button("📄 Tradução de Documento", use_container_width=True)
 
-# Bloco para exibir a Logo
-try:
-    logo = Image.open("logo_loreal_gpt.png")
-    # CORREÇÃO APLICADA AQUI:
-    st.image(logo, use_column_width=True) # Alterado para o novo parâmetro
-except FileNotFoundError:
-    st.title("L'ORÉAL GPT") # Fallback caso a imagem não seja encontrada
+# --- BLOCO DE TÍTULO (SEM LOGO) ---
+st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>L'ORÉAL GPT</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Demonstração do Privacy Partner</h3>", unsafe_allow_html=True)
+st.write("")
 
-st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Bem-vindo à plataforma de IA Generativa da L'Oréal.</h3>", unsafe_allow_html=True)
-st.write("") # Adiciona um espaço
-
-# Inicializa o estado da sessão para guardar as mensagens
+# Inicializa o estado da sessão
 if 'messages' not in st.session_state:
     st.session_state.messages = []
+if 'file_is_safe' not in st.session_state:
+    st.session_state.file_is_safe = True
+
+# Bloco para Upload e Análise de Arquivo
+uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
+
+if uploaded_file:
+    with st.spinner("Analisando arquivo em busca de riscos de privacidade..."):
+        df = pd.read_csv(uploaded_file)
+        file_content_string = df.to_string()
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt")
+
+        if analyzer_results:
+            st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis e não pode ser usado. O chat está bloqueado até que o arquivo seja removido.")
+            st.session_state.file_is_safe = False
+        else:
+            st.success(f"✅ **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` foi analisado e é seguro para uso.")
+            st.session_state.file_is_safe = True
+else:
+    # Garante que o chat seja liberado se o arquivo for removido
+    if not st.session_state.get('file_uploader_key', True):
+        st.session_state.file_is_safe = True
 
 # Exibe as mensagens do histórico
 for message in st.session_state.messages:
@@ -74,39 +99,23 @@ for message in st.session_state.messages:
 prompt = st.chat_input("Digite seu prompt ou cole um texto para análise...")
 
 if prompt:
-    # Adiciona a mensagem do usuário ao histórico
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # --- LÓGICA DO PRIVACY PARTNER ---
-    with st.spinner("Analisando em busca de riscos de privacidade..."):
-        analyzer_results = analyzer.analyze(text=prompt, language="pt")
-
-    # Se encontrar riscos, mostra o alerta e não continua
-    if analyzer_results:
-        alert_message = f"""
-        🚨 **ALERTA DO PRIVACY PARTNER!** 🚨
-
-        O texto que você inseriu contém **{len(analyzer_results)}** tipo(s) de informações pessoais/sensíveis.
-        
-        **Riscos Detectados:**
-        """
-        tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
-        for tipo in tipos_de_risco:
-            alert_message += f"\n- {tipo}"
-
-        alert_message += """
-        \n\n**Ação:** Conforme os Termos de Uso, para proteger os dados de nossos clientes e colaboradores, este prompt não será processado. Por favor, remova os dados sensíveis e tente novamente.
-        """
-        
-        st.session_state.messages.append({"role": "assistant", "content": alert_message})
-        with st.chat_message("assistant"):
-            st.warning(alert_message)
-
-    # Se não encontrar riscos, simula uma resposta normal do GPT
+    if not st.session_state.file_is_safe:
+        st.warning("Não é possível processar seu prompt pois o arquivo anexado contém dados sensíveis. Por favor, remova o arquivo para continuar.")
     else:
-        response_message = "✅ **Privacy Partner:** Nenhuma informação sensível detectada. Seu prompt foi processado com segurança. \n\n (Aqui viria a resposta normal do L'Oréal GPT...)"
-        st.session_state.messages.append({"role": "assistant", "content": response_message})
-        with st.chat_message("assistant"):
-            st.success(response_message)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.spinner("Analisando prompt..."):
+            analyzer_results = analyzer.analyze(text=prompt, language="pt")
+
+        if analyzer_results:
+            alert_message = "🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\nO seu prompt contém dados sensíveis e não será processado. Por favor, remova as informações e tente novamente."
+            st.session_state.messages.append({"role": "assistant", "content": alert_message})
+            with st.chat_message("assistant"):
+                st.warning(alert_message)
+        else:
+            response_message = "✅ **Privacy Partner:** Nenhuma informação sensível detectada no prompt. \n\n (Aqui viria a resposta normal do L'Oréal GPT...)"
+            st.session_state.messages.append({"role": "assistant", "content": response_message})
+            with st.chat_message("assistant"):
+                st.success(response_message)
