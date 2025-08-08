@@ -79,6 +79,7 @@ if uploaded_file:
         if analyzer_results:
 st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive data. Chat is locked.")
             st.session_state.file_is_safe = False
+            st.session_state.file_content = None
         else:
 st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
             st.session_state.file_is_safe = True
