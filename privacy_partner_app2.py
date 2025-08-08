@@ -84,17 +84,61 @@ entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "STREET_ADDRESS"]
 
 uploaded_file = st.file_uploader("Attach a file (.csv):", type=["csv"])
 if uploaded_file:
-    with st.spinner("Analisando arquivo..."):
-        df = pd.read_csv(uploaded_file)
-        file_content_string = df.to_string()
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii)
-        if analyzer_results:
-            st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive information. The chat has been locked.")
+    with st.spinner("Analyzing file cell by cell..."):
+        try:
+            df = pd.read_csv(uploaded_file, encoding='latin-1')
+            findings = [] # Lista para guardar os dados sensíveis encontrados
+ 
+            # Itera por cada célula do arquivo para uma análise precisa
+            for index, row in df.iterrows():
+                for col_name, cell_value in row.items():
+                    if cell_value and isinstance(cell_value, str):
+                        analyzer_results = analyzer.analyze(text=cell_value, language="pt")
+                        if analyzer_results:
+                            for result in analyzer_results:
+                                findings.append({
+                                    "row": index + 2,
+                                    "column": col_name,
+                                    "type": result.entity_type
+                                })
+            
+            if findings:
+                st.session_state.file_is_safe = False
+                st.session_state.file_content = None
+                
+                # --- LÓGICA APRIMORADA COM DOWNLOAD DE LOG ---
+                
+                # 1. Constrói o conteúdo do arquivo de log (.txt)
+log_lines = [f"Relatorio de Riscos de Privacidade - Arquivo: {uploaded_file.name}", "="*50]
+                for find in findings:
+                    log_lines.append(f"- Linha {find['row']}, Coluna '{find['column']}': Encontrado dado do tipo {find['type']}.")
+                log_content = "\n".join(log_lines)
+ 
+                # 2. Exibe a mensagem de erro resumida na tela
+st.error(f"🚨 **PRIVACY PARTNER ALERT!** The file `{uploaded_file.name}` contains sensitive data.")
+                
+                warning_message = (
+                    f"**Found {len(findings)} potential privacy risks in the file.**\n\n"
+                    f"**Recommended Action:** To proceed, please anonymize or pseudonymize the data. Download the detailed report to see the specific locations of all findings. You can use the **Privacy Partner Add-in for Excel** to help with this task."
+                )
+                st.warning(warning_message)
+ 
+                # 3. Oferece o botão de download para o log detalhado
+                st.download_button(
+                    label="Download Detailed Report (.txt)",
+                    data=log_content,
+file_name=f"privacy_report_{uploaded_file.name}.txt",
+                    mime="text/plain"
+                )
+ 
+            else:
+st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
+                st.session_state.file_is_safe = True
+                st.session_state.file_content = df.to_string()
+ 
+        except Exception as e:
+            st.error(f"Could not read the CSV file. Please ensure it is a valid CSV. Error: {e}")
             st.session_state.file_is_safe = False
-        else:
-            st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
-            st.session_state.file_is_safe = True
-            st.session_state.file_content = file_content_string
 else:
     st.session_state.file_is_safe = True
     st.session_state.file_content = None
