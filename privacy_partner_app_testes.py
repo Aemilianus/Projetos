@@ -5,6 +5,8 @@ import google.generativeai as genai
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
+# LINHA ADICIONADA AQUI:
+from presidio_analyzer.predefined_recognizers import EmailRecognizer
 
 # --- Reconhecedores Customizados (Nossos "Especialistas") ---
 class CustomBrCpfRecognizer(PatternRecognizer):
@@ -74,7 +76,7 @@ if uploaded_file:
     with st.spinner("Analyzing file..."):
         try:
             df = pd.read_csv(uploaded_file, encoding='latin-1')
-            st.session_state.original_df = df # Guarda o dataframe original
+            st.session_state.original_df = df
             findings = []
 
             for index, row in df.iterrows():
@@ -112,9 +114,8 @@ if uploaded_file:
             st.session_state.file_is_safe = False
 else:
     st.session_state.file_is_safe = True
-    st.session_state.anonymized_df = None # Limpa o dataframe anonimizado se o arquivo for removido
+    st.session_state.anonymized_df = None
 
-# Exibe o botão de download para o arquivo anonimizado, se ele existir
 if st.session_state.anonymized_df is not None:
     st.success("File anonymized successfully!")
     st.dataframe(st.session_state.anonymized_df.head())
