@@ -1,0 +1,5 @@
+streamlit
+presidio-analyzer
+presidio-anonymizer
+spacy==3.7.2
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.7.0/pt_core_news_lg-3.7.0-py3-none-any.whl
