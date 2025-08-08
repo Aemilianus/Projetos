@@ -6,7 +6,6 @@ from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
-# Importando os reconhecedores que queremos USAR
 from presidio_analyzer.predefined_recognizers import EmailRecognizer
 
 # --- Reconhecedor de CPF Customizado e Inteligente ---
@@ -33,24 +32,35 @@ class CustomBrPhoneRecognizer(PatternRecognizer):
     def __init__(self, **kwargs):
         super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer (Formatted)", patterns=self.PATTERNS, **kwargs)
 
+# --- NOVO: Reconhecedor de Endereço Contextual ---
+class CustomAddressRecognizer(PatternRecognizer):
+    """Reconhecedor que busca por padrões de endereço residencial."""
+    PATTERNS = [
+        Pattern(
+            name="endereco",
+            # Procura por Rua/Av/etc seguido por texto e opcionalmente um número no final
+            regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+(\d{1,5})?\b",
+            score=0.7,
+        )
+    ]
+    def __init__(self, **kwargs):
+        super().__init__(
+            supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs
+        )
+
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
     provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
+    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["pt"])
     
-    # --- CONFIGURAÇÃO SIMPLIFICADA DO ANALYZER ---
-    # Inicializa o motor sem filtros, vamos aplicá-los depois.
-    analyzer = AnalyzerEngine(
-        nlp_engine=nlp_engine,
-        supported_languages=["pt"]
-    )
-    
-    # Adicionamos os nossos reconhecedores "especialistas"
+    # Adicionando nossos reconhecedores "especialistas"
     analyzer.registry.add_recognizer(CustomBrCpfRecognizer())
     analyzer.registry.add_recognizer(CustomBrPhoneRecognizer())
     analyzer.registry.add_recognizer(EmailRecognizer())
+    analyzer.registry.add_recognizer(CustomAddressRecognizer())
     
     return analyzer
 
@@ -85,7 +95,7 @@ if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
 # Lista de entidades que consideramos PII de alto risco
-entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON"]
+entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON", "STREET_ADDRESS"]
 
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
 
@@ -93,8 +103,7 @@ if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
-        # --- MUDANÇA APLICADA AQUI ---
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii, score_threshold=0.7)
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii, score_threshold=0.6)
         if analyzer_results:
             st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
@@ -122,19 +131,25 @@ if prompt:
             st.markdown(prompt)
 
         with st.spinner("Privacy Partner analisando..."):
-            # --- MUDANÇA APLICADA AQUI ---
-            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=entidades_pii, score_threshold=0.7)
+            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=entidades_pii, score_threshold=0.6)
 
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
             riscos_formatados = "\n".join([f"- {tipo}" for tipo in tipos_de_risco])
+            
+            # --- MENSAGEM DE BLOQUEIO APRIMORADA ---
             alert_message = f"""
             🚨 **ALERTA DO PRIVACY PARTNER!** 🚨
 
-            Seu prompt contém **{len(tipos_de_risco)}** tipo(s) de informações sensíveis e não será processado.
+            Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.
             
-            **Riscos Detectados:**
+            **Riscos Potenciais Detectados:**
             {riscos_formatados}
+
+            ---
+            **Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente.
+            
+            [Saiba mais sobre como proteger dados sensíveis.](http://www.loreal.com/privacidade)
             """
             st.session_state.messages.append({"role": "assistant", "content": alert_message})
             with st.chat_message("assistant"):
