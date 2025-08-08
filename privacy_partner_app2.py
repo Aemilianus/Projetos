@@ -43,13 +43,13 @@ def get_analyzer():
     analyzer.registry.add_recognizer(CustomBrPhoneRecognizer())
     return analyzer
 
-# --- NOVO: Configuração e carregamento do modelo Gemini ---
+# --- Configuração e carregamento do modelo Gemini ---
 @st.cache_resource
 def get_gemini_model():
-    # Carrega a chave de API dos segredos do Streamlit
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Retorna o modelo de IA
-    return genai.GenerativeModel('gemini-pro')
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Alterado de 'gemini-pro' para o modelo mais recente
+    return genai.GenerativeModel('gemini-1.5-flash-latest')
 
 try:
     analyzer = get_analyzer()
@@ -112,24 +112,4 @@ if prompt:
             analyzer_results = analyzer.analyze(text=prompt, language="pt")
 
         if analyzer_results:
-            alert_message = "🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\nSeu prompt contém dados sensíveis e não será enviado para a IA."
-            st.session_state.messages.append({"role": "assistant", "content": alert_message})
-            with st.chat_message("assistant"):
-                st.warning(alert_message)
-        else:
-            # --- O PROMPT É SEGURO! CHAMANDO A IA REAL ---
-            with st.spinner("Prompt seguro. Enviando para a IA Generativa..."):
-                try:
-                    # Se houver um arquivo seguro, adicione-o como contexto
-                    full_prompt = prompt
-                    if st.session_state.file_content:
-                        full_prompt = f"Com base neste contexto:\n---\n{st.session_state.file_content}\n---\n\nResponda à seguinte pergunta: {prompt}"
-                    
-                    response = gemini_model.generate_content(full_prompt)
-                    response_text = response.text
-                except Exception as e:
-                    response_text = f"Ocorreu um erro ao chamar a API da IA. Detalhes: {e}"
-
-                st.session_state.messages.append({"role": "assistant", "content": response_text})
-                with st.chat_message("assistant"):
-                    st.markdown(response_text)
+            alert_message = "🚨 **ALERTA DO
