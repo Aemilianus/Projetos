@@ -4,60 +4,53 @@ import re
 import google.generativeai as genai
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_analyzer.predefined_recognizers import EmailRecognizer
-
-# --- Reconhecedor de CPF Customizado e Inteligente (LÓGICA CORRIGIDA) ---
-class CustomBrCpfRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.8)]
-    def __init__(self, **kwargs):
-        super().__init__(supported_entity="BR_CPF", name="Custom CPF Recognizer (with Checksum)", patterns=self.PATTERNS, **kwargs)
-    def validate_result(self, pattern_text: str) -> bool:
-        cpf = "".join(re.findall(r'\d', pattern_text))
-        if len(cpf) != 11 or len(set(cpf)) == 1: return False
-        
-        # Validação do primeiro dígito verificador
-        soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
-        digito1 = (soma * 10) % 11
-        if digito1 == 10: digito1 = 0
-        if digito1 != int(cpf[9]): return False
-
-        # Validação do segundo dígito verificador
-        soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
-        digito2 = (soma * 10) % 11
-        if digito2 == 10: digito2 = 0
-        if digito2 != int(cpf[10]): return False
-        
-        return True
-
-# --- Reconhecedor de Telefone Customizado ---
-class CustomBrPhoneRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)]
-    def __init__(self, **kwargs):
-        super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer (Formatted)", patterns=self.PATTERNS, **kwargs)
-
-# --- Reconhecedor de Endereço Contextual ---
-class CustomAddressRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+(\d{1,5})?\b", score=0.7)]
-    def __init__(self, **kwargs):
-        super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
+from presidio_analyzer.recognizer_registry import RecognizerRegistry
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
+    """Cria e configura um motor de análise focado e estável."""
+    
+    # Criamos uma lista de reconhecedores que vamos usar
+    # Isso nos dá controle total sobre o que é detectado
+    
+    # 1. Reconhecedor de Email (Padrão do Presidio, muito confiável)
+    from presidio_analyzer.predefined_recognizers import EmailRecognizer
+    email_recognizer = EmailRecognizer(supported_entity="EMAIL_ADDRESS")
+
+    # 2. Reconhecedor de CPF (Padrão Regex, focado em detecção)
+    cpf_pattern = Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)
+    cpf_recognizer = PatternRecognizer(supported_entity="BR_CPF", name="CPF Recognizer", patterns=[cpf_pattern])
+
+    # 3. Reconhecedor de Endereço (Padrão Regex)
+    address_pattern = Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.7)
+    address_recognizer = PatternRecognizer(supported_entity="STREET_ADDRESS", name="Address Recognizer", patterns=[address_pattern])
+    
+    # 4. Reconhecedor de Telefone (Padrão Regex)
+    phone_pattern = Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)
+    phone_recognizer = PatternRecognizer(supported_entity="PHONE_NUMBER", name="Phone Recognizer", patterns=[phone_pattern])
+    
+    # Montamos nosso registro customizado APENAS com os reconhecedores que queremos
+    registry = RecognizerRegistry()
+    registry.add_recognizer(email_recognizer)
+    registry.add_recognizer(cpf_recognizer)
+    registry.add_recognizer(address_recognizer)
+    registry.add_recognizer(phone_recognizer)
+
+    # Configuramos o motor de linguagem para nomes de pessoas
     provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
-    analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["pt"])
     
-    # Adicionando nossos reconhecedores "especialistas"
-    analyzer.registry.add_recognizer(CustomBrCpfRecognizer())
-    analyzer.registry.add_recognizer(CustomBrPhoneRecognizer())
-    analyzer.registry.add_recognizer(EmailRecognizer())
-    analyzer.registry.add_recognizer(CustomAddressRecognizer())
+    # Criamos o Analyzer Engine passando nosso registro customizado
+    analyzer = AnalyzerEngine(
+        nlp_engine=nlp_engine,
+        registry=registry,
+        supported_languages=["pt"]
+    )
     
     return analyzer
 
-# --- Configuração e carregamento do modelo Gemini ---
 @st.cache_resource
 def get_gemini_model():
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -88,15 +81,15 @@ if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
+
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", score_threshold=0.6)
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt")
         if analyzer_results:
             st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
-            st.session_state.file_content = None
         else:
             st.success(f"✅ **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` é seguro para uso.")
             st.session_state.file_is_safe = True
@@ -120,13 +113,12 @@ if prompt:
             st.markdown(prompt)
 
         with st.spinner("Privacy Partner analisando..."):
-            analyzer_results = analyzer.analyze(text=prompt, language="pt", score_threshold=0.6)
+            analyzer_results = analyzer.analyze(text=prompt, language="pt")
 
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
             riscos_formatados = "\n".join([f"- {tipo}" for tipo in tipos_de_risco])
             
-            # --- MENSAGEM DE BLOQUEIO CORRIGIDA ---
             alert_message = (
                 f"🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\n"
                 f"Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.\n\n"
