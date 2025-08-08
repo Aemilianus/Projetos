@@ -89,7 +89,7 @@ if uploaded_file:
         file_content_string = df.to_string()
         analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii)
         if analyzer_results:
-            st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive information.\n **Recommended Action:** To procees, please anonymize or pseudononymize the data. You can use the **Privacy Partner Add-in for Excel** to help. ")
+            st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive information.\n\n **Recommended Action:** To procees, please anonymize or pseudononymize the data. You can use the **Privacy Partner Add-in for Excel** to help. ")
             st.session_state.file_is_safe = False
         else:
             st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
