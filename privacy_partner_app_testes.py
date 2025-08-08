@@ -7,7 +7,7 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
 from presidio_analyzer.predefined_recognizers import EmailRecognizer
 
-# --- Custom Recognizers ---
+# --- Reconhecedores Customizados ---
 class CustomBrCpfRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)]
     def __init__(self, **kwargs):
@@ -19,17 +19,13 @@ class CustomAddressRecognizer(PatternRecognizer):
         super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
 
 class CustomBrPhoneRecognizer(PatternRecognizer):
-    PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.4)]
+    PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer", patterns=self.PATTERNS, **kwargs)
 
-# --- Engine Loading and Configuration ---
+# --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
-    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
-    provider = NlpEngineProvider(nlp_configuration=provider_config)
-    nlp_engine = provider.create_engine()
-    
     registry = RecognizerRegistry(supported_languages=["pt"])
     registry.load_predefined_recognizers(languages=["pt"])
     
@@ -39,6 +35,10 @@ def get_analyzer():
     
     registry.remove_recognizer("PhoneRecognizer")
     registry.remove_recognizer("DateRecognizer")
+    
+    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
+    provider = NlpEngineProvider(nlp_configuration=provider_config)
+    nlp_engine = provider.create_engine()
     
     analyzer = AnalyzerEngine(
         registry=registry,
@@ -59,10 +59,10 @@ try:
     with open(".streamlit/style.css") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 except Exception as e:
-    st.error(f"Loading error. Please check your API key and files. Error: {e}")
+    st.error(f"Erro ao carregar. Verifique sua chave de API e arquivos. Erro: {e}")
     st.stop()
 
-# --- Mockup Interface (in English) ---
+# --- Interface do Mockup ---
 with st.sidebar:
     st.write("Recent Chats")
     st.button("💬 Campaign Analysis", use_container_width=True)
@@ -78,27 +78,61 @@ if 'file_content' not in st.session_state: st.session_state.file_content = None
 
 entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "STREET_ADDRESS", "PERSON"]
 
+# --- BLOCO DE UPLOAD DE ARQUIVO COM GERAÇÃO DE RELATÓRIO TXT ---
 uploaded_file = st.file_uploader("Attach a file (.csv):", type=["csv"])
+
 if uploaded_file:
-    with st.spinner("Analyzing file..."):
+    with st.spinner("Analyzing file cell by cell..."):
         try:
             df = pd.read_csv(uploaded_file, encoding='latin-1')
-            file_content_string = df.to_string()
-            analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii)
-            if analyzer_results:
-                st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive data. The chat has been locked.")
+            findings = []
+
+            for index, row in df.iterrows():
+                for col_name, cell_value in row.items():
+                    if cell_value and isinstance(cell_value, str):
+                        analyzer_results = analyzer.analyze(text=cell_value, language="pt", entities=entidades_pii)
+                        if analyzer_results:
+                            for result in analyzer_results:
+                                findings.append({
+                                    "row": index + 2,
+                                    "column": col_name,
+                                    "type": result.entity_type
+                                })
+            
+            if findings:
                 st.session_state.file_is_safe = False
+                st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive data. The chat has been locked.")
+                
+                log_lines = [f"Privacy Risk Report - File: {uploaded_file.name}", "="*50]
+                for find in findings:
+                    log_lines.append(f"- Row {find['row']}, Column '{find['column']}': Found data of type {find['type']}.")
+                log_content = "\n".join(log_lines)
+
+                warning_message = (
+                    f"**Found {len(findings)} potential privacy risks.**\n\n"
+                    f"**Recommended Action:** Download the detailed report to see the specific locations. Please anonymize or pseudonymize the data in these columns using the **Privacy Partner Add-in for Excel** before uploading the file again."
+                )
+                st.warning(warning_message, icon="⚠️")
+
+                st.download_button(
+                    label="Download Detailed Report (.txt)",
+                    data=log_content,
+                    file_name=f"privacy_report_{uploaded_file.name}.txt",
+                    mime="text/plain"
+                )
             else:
                 st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
                 st.session_state.file_is_safe = True
-                st.session_state.file_content = file_content_string
+                st.session_state.file_content = df.to_string()
+        
         except Exception as e:
-            st.error(f"Could not read the CSV file. Error: {e}")
+            st.error(f"Could not read the CSV file. Please ensure it is a valid CSV. Error: {e}")
             st.session_state.file_is_safe = False
 else:
     st.session_state.file_is_safe = True
     st.session_state.file_content = None
 
+# --- Lógica do Chat ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"], unsafe_allow_html=True)
