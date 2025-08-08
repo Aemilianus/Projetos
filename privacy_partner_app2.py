@@ -72,7 +72,7 @@ with st.sidebar:
     st.button("📊 Relatório de Vendas", use_container_width=True)
 
 st.markdown("<h1 style='text-align: center; color: #4A4A4A;'>L'ORÉAL GPT</h1>", unsafe_allow_html=True)
-st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Demonstração do Privacy Partner</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Privacy Partner Demo</h3>", unsafe_allow_html=True)
 st.write("")
 
 if 'messages' not in st.session_state: st.session_state.messages = []
@@ -82,17 +82,17 @@ if 'file_content' not in st.session_state: st.session_state.file_content = None
 # Lista de entidades que consideramos PII de alto risco (REMOVEMOS 'PERSON')
 entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "STREET_ADDRESS"]
 
-uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
+uploaded_file = st.file_uploader("Attach a file (.csv):", type=["csv"])
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
         analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii)
         if analyzer_results:
-            st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
+            st.error(f"🚨 **PRIVACY PARTNER:** The file `{uploaded_file.name}` contains sensitive information. The chat has been locked.")
             st.session_state.file_is_safe = False
         else:
-            st.success(f"✅ **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` é seguro para uso.")
+            st.success(f"✅ **PRIVACY PARTNER:** The file `{uploaded_file.name}` is safe to use.")
             st.session_state.file_is_safe = True
             st.session_state.file_content = file_content_string
 else:
@@ -103,11 +103,11 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"], unsafe_allow_html=True)
 
-prompt = st.chat_input("Digite seu prompt ou cole um texto para análise...")
+prompt = st.chat_input("Enter your prompt or paste a text for analysis...")
 
 if prompt:
     if not st.session_state.file_is_safe:
-        st.warning("Não é possível processar seu prompt pois o arquivo anexado contém dados sensíveis. Remova o arquivo para continuar.")
+        st.warning("It is not possible to process your prompt because the attached file contains sensitive data. Please remove the file to continue.")
     else:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -120,21 +120,21 @@ if prompt:
             
             # --- MENSAGEM DE BLOQUEIO E HIPERLINK CORRIGIDOS ---
             alert_message = (
-                f"🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\n"
-                f"Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.\n\n"
-                f"**Riscos Potenciais Detectados:**\n"
+                f"🚨 **PRIVACY PARTNER ALERT!** 🚨\n\n"
+                f"Your prompt contains information that may be sensitive and, to ensure compliance with our privacy policies, it has been blocked.\n\n"
+                f"**Potential Risks Detected:**\n"
                 f"{riscos_formatados}\n\n"
                 f"---\n"
-                f"**Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente."
+                f"**Recommended Action:** Kindly remove the identified personal data and attempt to submit your prompt again."
             )
-            link_markdown = "<a href='http://www.loreal.com/privacidade' target='_blank' style='color: #0073e6; text-decoration: none;'>Saiba mais sobre como proteger dados sensíveis.</a>"
+            link_markdown = "<a href='http://www.loreal.com/privacidade' target='_blank' style='color: #0073e6; text-decoration: none;'>Find out more about protecting sensitive data.</a>"
             
             st.session_state.messages.append({"role": "assistant", "content": f"{alert_message}\n\n{link_markdown}"})
             with st.chat_message("assistant"):
                 st.warning(alert_message, icon="⚠️")
                 st.markdown(link_markdown, unsafe_allow_html=True)
         else:
-            with st.spinner("Prompt seguro. Enviando para a IA Generativa..."):
+            with st.spinner("Safe prompt. Sending to Generative AI..."):
                 try:
                     full_prompt = prompt
                     if st.session_state.file_content:
