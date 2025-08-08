@@ -5,44 +5,46 @@ import google.generativeai as genai
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.recognizer_registry import RecognizerRegistry
+from presidio_analyzer.predefined_recognizers import EmailRecognizer
+
+# --- Reconhecedores Customizados ---
+class CustomBrCpfRecognizer(PatternRecognizer):
+    PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)]
+    def __init__(self, **kwargs):
+        super().__init__(supported_entity="BR_CPF", name="Custom CPF Recognizer", patterns=self.PATTERNS, **kwargs)
+
+class CustomAddressRecognizer(PatternRecognizer):
+    PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.7)]
+    def __init__(self, **kwargs):
+        super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
+
+class CustomBrPhoneRecognizer(PatternRecognizer):
+    PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)]
+    def __init__(self, **kwargs):
+        super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer", patterns=self.PATTERNS, **kwargs)
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
-    """Cria e configura um motor de análise focado e estável."""
-    
-    # Criamos uma lista de reconhecedores que vamos usar
-    # Isso nos dá controle total sobre o que é detectado
-    
-    # 1. Reconhecedor de Email (Padrão do Presidio, muito confiável)
-    from presidio_analyzer.predefined_recognizers import EmailRecognizer
-    email_recognizer = EmailRecognizer(supported_entity="EMAIL_ADDRESS")
-
-    # 2. Reconhecedor de CPF (Padrão Regex, focado em detecção)
-    cpf_pattern = Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)
-    cpf_recognizer = PatternRecognizer(supported_entity="BR_CPF", name="CPF Recognizer", patterns=[cpf_pattern])
-
-    # 3. Reconhecedor de Endereço (Padrão Regex)
-    address_pattern = Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+", score=0.7)
-    address_recognizer = PatternRecognizer(supported_entity="STREET_ADDRESS", name="Address Recognizer", patterns=[address_pattern])
-    
-    # 4. Reconhecedor de Telefone (Padrão Regex)
-    phone_pattern = Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)
-    phone_recognizer = PatternRecognizer(supported_entity="PHONE_NUMBER", name="Phone Recognizer", patterns=[phone_pattern])
-    
-    # Montamos nosso registro customizado APENAS com os reconhecedores que queremos
-    registry = RecognizerRegistry()
-    registry.add_recognizer(email_recognizer)
-    registry.add_recognizer(cpf_recognizer)
-    registry.add_recognizer(address_recognizer)
-    registry.add_recognizer(phone_recognizer)
-
-    # Configuramos o motor de linguagem para nomes de pessoas
     provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     
-    # Criamos o Analyzer Engine passando nosso registro customizado
+    # --- CORREÇÃO DE IDIOMA APLICADA AQUI ---
+    registry = RecognizerRegistry(supported_languages=["pt"])
+    registry.load_predefined_recognizers(languages=["pt"])
+    
+    # Adicionamos nossos especialistas, garantindo que eles suportem português
+    registry.add_recognizer(CustomBrCpfRecognizer(supported_language="pt"))
+    registry.add_recognizer(CustomAddressRecognizer(supported_language="pt"))
+    registry.add_recognizer(CustomBrPhoneRecognizer(supported_language="pt"))
+    
+    # Removemos reconhecedores genéricos para evitar falsos positivos
+    registry.remove_recognizer("PhoneRecognizer") # Remove o padrão genérico
+    registry.remove_recognizer("CreditCardRecognizer")
+    registry.remove_recognizer("IpRecognizer")
+    registry.remove_recognizer("DateRecognizer")
+    
     analyzer = AnalyzerEngine(
         nlp_engine=nlp_engine,
         registry=registry,
@@ -81,7 +83,6 @@ if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
-
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
@@ -111,14 +112,11 @@ if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
-
         with st.spinner("Privacy Partner analisando..."):
             analyzer_results = analyzer.analyze(text=prompt, language="pt")
-
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
             riscos_formatados = "\n".join([f"- {tipo}" for tipo in tipos_de_risco])
-            
             alert_message = (
                 f"🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\n"
                 f"Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.\n\n"
@@ -137,12 +135,10 @@ if prompt:
                     full_prompt = prompt
                     if st.session_state.file_content:
                         full_prompt = f"Com base neste contexto:\n---\n{st.session_state.file_content}\n---\n\nResponda à seguinte pergunta: {prompt}"
-                    
                     response = gemini_model.generate_content(full_prompt)
                     response_text = response.text
                 except Exception as e:
                     response_text = f"Ocorreu um erro ao chamar a API da IA. Detalhes: {e}"
-
                 st.session_state.messages.append({"role": "assistant", "content": response_text})
                 with st.chat_message("assistant"):
                     st.markdown(response_text)
