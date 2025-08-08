@@ -7,7 +7,7 @@ from presidio_anonymizer.entities import OperatorConfig
 # --- Configuração do Presidio (Nossos "Especialistas") ---
 @st.cache_resource
 def get_analyzer_and_anonymizer():
-    # Reconhecedor de CPF com idioma explicitamente definido
+    # Reconhecedor de CPF
     cpf_recognizer = PatternRecognizer(
         supported_entity="BR_CPF",
         name="CPF Recognizer",
@@ -15,12 +15,9 @@ def get_analyzer_and_anonymizer():
         supported_language="pt"
     )
     
-    # --- CORREÇÃO APLICADA AQUI ---
-    # O registro agora é explicitamente criado para Português
     registry = RecognizerRegistry(supported_languages=["pt"])
     registry.add_recognizer(cpf_recognizer)
     
-    # Agora o motor e o registro estão alinhados em 'pt'
     analyzer = AnalyzerEngine(registry=registry, supported_languages=["pt"])
     anonymizer = AnonymizerEngine()
     
@@ -54,7 +51,6 @@ if 'df_data' not in st.session_state:
 # Container principal para a "planilha"
 with st.container():
     st.markdown("###### Teste_Sensivel.csv")
-    # O editor de dados que imita a planilha
     edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor")
 
 # Lógica do Add-in na aba "Suplementos"
@@ -65,9 +61,9 @@ with excel_tab:
         if st.button("🚀 Privacy Partner Scan", help="Clique para analisar a planilha em busca de dados sensíveis."):
             with st.spinner("Analisando planilha..."):
                 findings = []
-                # Analisa cada célula da planilha atual
-                current_df = pd.DataFrame(st.session_state['data_editor'])
-                for index, row in current_df.iterrows():
+                # --- CORREÇÃO APLICADA AQUI ---
+                # Usamos a variável 'edited_df' diretamente
+                for index, row in edited_df.iterrows():
                     for col_name, cell_value in row.items():
                         if cell_value and isinstance(cell_value, str):
                             results = analyzer.analyze(text=cell_value, language="pt")
@@ -92,15 +88,15 @@ with st.sidebar:
         st.markdown("**Ações Recomendadas:**")
 
         if st.button("Anonimizar Dados"):
-            anonymized_df = pd.DataFrame(st.session_state['data_editor']).copy()
+            # Usamos a variável 'edited_df' aqui também para anonimizar o estado atual
+            anonymized_df = edited_df.copy()
             for find in st.session_state.findings:
-                # Anonimiza substituindo pela tag do tipo de dado
                 anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
             
-            st.session_state.df_data = anonymized_df # Atualiza a planilha na tela
-            st.session_state.findings = [] # Limpa os achados
+            st.session_state.df_data = anonymized_df
+            st.session_state.findings = []
             st.success("Dados anonimizados!")
-            st.rerun() # Recarrega a página para mostrar a atualização
+            st.rerun()
 
     else:
         st.success("Nenhum dado sensível detectado na planilha.")
