@@ -4,11 +4,9 @@ import re
 import google.generativeai as genai
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from presidio_analyzer.nlp_engine import NlpEngineProvider
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
 from presidio_analyzer.predefined_recognizers import EmailRecognizer
 
-# --- Reconhecedor de CPF Customizado e Inteligente ---
+# --- Reconhecedor de CPF Customizado e Inteligente (LÓGICA CORRIGIDA) ---
 class CustomBrCpfRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.8)]
     def __init__(self, **kwargs):
@@ -16,37 +14,32 @@ class CustomBrCpfRecognizer(PatternRecognizer):
     def validate_result(self, pattern_text: str) -> bool:
         cpf = "".join(re.findall(r'\d', pattern_text))
         if len(cpf) != 11 or len(set(cpf)) == 1: return False
+        
+        # Validação do primeiro dígito verificador
         soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
-        d1 = 11 - (soma % 11)
-        if d1 >= 10: d1 = 0
-        if d1 != int(cpf[9]): return False
+        digito1 = (soma * 10) % 11
+        if digito1 == 10: digito1 = 0
+        if digito1 != int(cpf[9]): return False
+
+        # Validação do segundo dígito verificador
         soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
-        d2 = 11 - (soma % 11)
-        if d2 >= 10: d2 = 0
-        if d2 != int(cpf[10]): return False
+        digito2 = (soma * 10) % 11
+        if digito2 == 10: digito2 = 0
+        if digito2 != int(cpf[10]): return False
+        
         return True
 
-# --- Reconhecedor de Telefone Customizado e Criterioso ---
+# --- Reconhecedor de Telefone Customizado ---
 class CustomBrPhoneRecognizer(PatternRecognizer):
     PATTERNS = [Pattern(name="telefone_formatado", regex=r"\b(\(\d{2}\)\s?\d{4,5}-?\d{4}|\d{2}\s\d{4,5}-?\d{4})\b", score=0.9)]
     def __init__(self, **kwargs):
         super().__init__(supported_entity="PHONE_NUMBER", name="Custom Phone Recognizer (Formatted)", patterns=self.PATTERNS, **kwargs)
 
-# --- NOVO: Reconhecedor de Endereço Contextual ---
+# --- Reconhecedor de Endereço Contextual ---
 class CustomAddressRecognizer(PatternRecognizer):
-    """Reconhecedor que busca por padrões de endereço residencial."""
-    PATTERNS = [
-        Pattern(
-            name="endereco",
-            # Procura por Rua/Av/etc seguido por texto e opcionalmente um número no final
-            regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+(\d{1,5})?\b",
-            score=0.7,
-        )
-    ]
+    PATTERNS = [Pattern(name="endereco", regex=r"\b(Rua|Av\.|Avenida|Travessa|Praça|Est|Estrada)\s[\w\s,.-]+(\d{1,5})?\b", score=0.7)]
     def __init__(self, **kwargs):
-        super().__init__(
-            supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs
-        )
+        super().__init__(supported_entity="STREET_ADDRESS", name="Custom Address Recognizer", patterns=self.PATTERNS, **kwargs)
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
@@ -94,16 +87,12 @@ if 'messages' not in st.session_state: st.session_state.messages = []
 if 'file_is_safe' not in st.session_state: st.session_state.file_is_safe = True
 if 'file_content' not in st.session_state: st.session_state.file_content = None
 
-# Lista de entidades que consideramos PII de alto risco
-entidades_pii = ["BR_CPF", "PHONE_NUMBER", "EMAIL_ADDRESS", "PERSON", "STREET_ADDRESS"]
-
 uploaded_file = st.file_uploader("Ou anexe um arquivo (.csv) para usar como contexto:", type=["csv"])
-
 if uploaded_file:
     with st.spinner("Analisando arquivo..."):
         df = pd.read_csv(uploaded_file)
         file_content_string = df.to_string()
-        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", entities=entidades_pii, score_threshold=0.6)
+        analyzer_results = analyzer.analyze(text=file_content_string, language="pt", score_threshold=0.6)
         if analyzer_results:
             st.error(f"🚨 **PRIVACY PARTNER:** O arquivo `{uploaded_file.name}` contém dados sensíveis. O chat está bloqueado.")
             st.session_state.file_is_safe = False
@@ -118,7 +107,7 @@ else:
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        st.markdown(message["content"], unsafe_allow_html=True)
 
 prompt = st.chat_input("Digite seu prompt ou cole um texto para análise...")
 
@@ -131,29 +120,25 @@ if prompt:
             st.markdown(prompt)
 
         with st.spinner("Privacy Partner analisando..."):
-            analyzer_results = analyzer.analyze(text=prompt, language="pt", entities=entidades_pii, score_threshold=0.6)
+            analyzer_results = analyzer.analyze(text=prompt, language="pt", score_threshold=0.6)
 
         if analyzer_results:
             tipos_de_risco = list(set([res.entity_type for res in analyzer_results]))
             riscos_formatados = "\n".join([f"- {tipo}" for tipo in tipos_de_risco])
             
-            # --- MENSAGEM DE BLOQUEIO APRIMORADA ---
-            alert_message = f"""
-            🚨 **ALERTA DO PRIVACY PARTNER!** 🚨
-
-            Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.
-            
-            **Riscos Potenciais Detectados:**
-            {riscos_formatados}
-
-            ---
-            **Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente.
-            
-            [Saiba mais sobre como proteger dados sensíveis.](http://www.loreal.com/privacidade)
-            """
+            # --- MENSAGEM DE BLOQUEIO CORRIGIDA ---
+            alert_message = (
+                f"🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\n"
+                f"Seu prompt contém informações que podem ser sensíveis e, para garantir a conformidade com nossas políticas de privacidade, ele foi bloqueado.\n\n"
+                f"**Riscos Potenciais Detectados:**\n"
+                f"{riscos_formatados}\n\n"
+                f"---\n"
+                f"**Ação Recomendada:** Por favor, remova os dados pessoais identificados e tente enviar seu prompt novamente.\n\n"
+                f"<a href='http://www.loreal.com/privacidade' target='_blank'>Saiba mais sobre como proteger dados sensíveis.</a>"
+            )
             st.session_state.messages.append({"role": "assistant", "content": alert_message})
             with st.chat_message("assistant"):
-                st.warning(alert_message)
+                st.warning(alert_message, icon="⚠️")
         else:
             with st.spinner("Prompt seguro. Enviando para a IA Generativa..."):
                 try:
