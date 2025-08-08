@@ -3,20 +3,28 @@ from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
+from PIL import Image # Importante: Adicionamos a biblioteca para manipular imagens
 
 # --- Carregamento dos Motores e Configuração ---
 @st.cache_resource
 def get_analyzer():
+    """Cria e configura o motor de análise do Presidio."""
     provider_config = {
         "nlp_engine_name": "spacy",
         "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]
     }
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
-    return AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["pt"])
+    
+    analyzer = AnalyzerEngine(
+        nlp_engine=nlp_engine,
+        supported_languages=["pt"]
+    )
+    return analyzer
 
 @st.cache_resource
 def get_anonymizer():
+    """Cria o motor de anonimização."""
     return AnonymizerEngine()
 
 try:
@@ -42,10 +50,15 @@ with st.sidebar:
     st.button("📝 Ideias para Posts", use_container_width=True)
     st.button("📄 Tradução de Documento", use_container_width=True)
 
+# --- NOVO BLOCO PARA EXIBIR A LOGO ---
+try:
+    logo = Image.open("logo_loreal_gpt.png")
+    st.image(logo, use_column_width=True)
+except FileNotFoundError:
+    st.title("L'ORÉAL GPT") # Fallback caso a imagem não seja encontrada
 
-# Título principal com logo simulado
-st.title("L'ORÉAL GPT")
-st.markdown("Bem-vindo à plataforma de IA Generativa da L'Oréal.")
+st.markdown("<h3 style='text-align: center; color: #555; font-weight: normal;'>Bem-vindo à plataforma de IA Generativa da L'Oréal.</h3>", unsafe_allow_html=True)
+st.write("") # Adiciona um espaço
 
 # Inicializa o estado da sessão para guardar as mensagens
 if 'messages' not in st.session_state:
