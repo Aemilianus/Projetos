@@ -112,4 +112,22 @@ if prompt:
             analyzer_results = analyzer.analyze(text=prompt, language="pt")
 
         if analyzer_results:
-            alert_message = "🚨 **ALERTA DO
+            alert_message = "🚨 **ALERTA DO PRIVACY PARTNER!** 🚨\n\nSeu prompt contém dados sensíveis e não será enviado para a IA."
+            st.session_state.messages.append({"role": "assistant", "content": alert_message})
+            with st.chat_message("assistant"):
+                st.warning(alert_message)
+        else:
+            with st.spinner("Prompt seguro. Enviando para a IA Generativa..."):
+                try:
+                    full_prompt = prompt
+                    if st.session_state.file_content:
+                        full_prompt = f"Com base neste contexto:\n---\n{st.session_state.file_content}\n---\n\nResponda à seguinte pergunta: {prompt}"
+                    
+                    response = gemini_model.generate_content(full_prompt)
+                    response_text = response.text
+                except Exception as e:
+                    response_text = f"Ocorreu um erro ao chamar a API da IA. Detalhes: {e}"
+
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+                with st.chat_message("assistant"):
+                    st.markdown(response_text)
