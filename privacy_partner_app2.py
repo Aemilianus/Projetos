@@ -127,7 +127,7 @@ if prompt:
                 f"---\n"
                 f"**Recommended Action:** Kindly remove the identified personal data and attempt to submit your prompt again."
             )
-            link_markdown = "<a href='http://www.loreal.com/privacidade' target='_blank' style='color: #0073e6; text-decoration: none;'>Find out more about protecting sensitive data.</a>"
+            link_markdown = "<a href='https://www.lorealanywhere.com/sites/l-or%C3%A9al-latam/equipos-corporativos/SitePageModern/352098/data-privacy' target='_blank' style='color: #0073e6; text-decoration: none;'>Find out more about protecting sensitive data.</a>"
             
             st.session_state.messages.append({"role": "assistant", "content": f"{alert_message}\n\n{link_markdown}"})
             with st.chat_message("assistant"):
