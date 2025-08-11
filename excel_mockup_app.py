@@ -3,16 +3,31 @@ import pandas as pd
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, RecognizerRegistry, Pattern
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
 
-# --- Presidio Configuration (from your working script) ---
+# --- Presidio Configuration ---
 @st.cache_resource
 def get_analyzer_and_anonymizer():
+    # Carrega os reconhecedores padrão (incluindo o de Nomes - PERSON)
+    registry = RecognizerRegistry(supported_languages=["pt"])
+    registry.load_predefined_recognizers(languages=["pt"])
+
+    # Define e adiciona nosso reconhecedor customizado de CPF para alta precisão
+    cpf_recognizer = PatternRecognizer(
+        supported_entity="BR_CPF",
+        name="CPF Recognizer",
+        patterns=[Pattern(name="cpf", regex=r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b", score=0.9)],
+        supported_language="pt"
+    )
+    registry.add_recognizer(cpf_recognizer)
+    
+    # Configura o motor de linguagem que alimenta os reconhecedores
     provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
     provider = NlpEngineProvider(nlp_configuration=provider_config)
     nlp_engine = provider.create_engine()
     
+    # Cria o motor de análise com o registro completo
     analyzer = AnalyzerEngine(
+        registry=registry,
         nlp_engine=nlp_engine,
         supported_languages=["pt"]
     )
@@ -25,22 +40,18 @@ analyzer, anonymizer = get_analyzer_and_anonymizer()
 # --- Application Interface ---
 st.set_page_config(layout="wide", page_title="Privacy Partner - Excel Mockup")
 
-# Green Excel Header Bar
 st.markdown(
     """<div style='background-color:#1D6F42;padding:10px;border-radius:5px 5px 0 0;'><h1 style='color:white;text-align:left;font-size:18px;font-weight:normal;margin:0;'>
        Excel - Sensitive_Test.csv</h1></div>""",
     unsafe_allow_html=True
 )
 
-# Simulation of Excel's Ribbon
 tabs = st.tabs(["File", "Home", "Insert", "▶️ Add-ins"])
 excel_tab = tabs[3]
 
-# Sample data
 data = {
-    'Name': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos'],
+    'Nome': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos'],
     'CPF': ['123.456.789-11', '148.258.127-24', '111.444.777-35'],
-    'Address': ['Rua das Flores, 123', 'Avenida Brasil, 456', 'Praça da Sé, 789']
 }
 df = pd.DataFrame(data)
 
@@ -51,13 +62,15 @@ if 'original_df' not in st.session_state:
     st.session_state.original_df = df.copy()
 if 'findings' not in st.session_state:
     st.session_state.findings = []
+if 'scan_run' not in st.session_state:
+    st.session_state.scan_run = False # Novo estado para controlar o botão Reset
 
 # Main container for the "spreadsheet"
 edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor", height=200)
 
-# Logic for the Add-in
 with excel_tab:
     if st.button("🚀 Privacy Partner Scan", help="Click to scan the spreadsheet for sensitive data."):
+        st.session_state.scan_run = True # Marca que o scan foi executado
         with st.spinner("Analyzing spreadsheet..."):
             findings = []
             for index, row in edited_df.iterrows():
@@ -76,10 +89,13 @@ with st.sidebar:
     st.markdown("Your privacy assistant for Excel.")
     st.markdown("---")
 
-    if st.button("Reset to Original Data"):
-        st.session_state.df_data = st.session_state.original_df.copy()
-        st.session_state.findings = []
-        st.rerun()
+    # O botão Reset agora só aparece DEPOIS do primeiro scan
+    if st.session_state.scan_run:
+        if st.button("Reset to Original Data"):
+            st.session_state.df_data = st.session_state.original_df.copy()
+            st.session_state.findings = []
+            st.session_state.scan_run = False # Reseta o estado do scan
+            st.rerun()
 
     if st.session_state.findings:
         st.warning(f"**Alert!** {len(st.session_state.findings)} sensitive data point(s) found.")
@@ -98,12 +114,7 @@ with st.sidebar:
             if st.button("Anonymize"):
                 anonymized_df = st.session_state.last_edited_df.copy()
                 for find in st.session_state.findings:
-                    anonymized_result = anonymizer.anonymize(
-                        text=find['text'],
-                        analyzer_results=[r for r in analyzer.analyze(text=find['text'], language="pt") if r.entity_type == find['type']],
-                        operators={"DEFAULT": OperatorConfig("replace", {"new_value": f"<{find['type']}>"})}
-                    )
-                    anonymized_df.at[find['row'], find['col']] = anonymized_result.text
+                    anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
                 st.session_state.df_data = anonymized_df
                 st.session_state.findings = []
                 st.rerun()
@@ -117,5 +128,5 @@ with st.sidebar:
                 st.session_state.df_data = pseudo_df
                 st.session_state.findings = []
                 st.rerun()
-    else:
+    elif st.session_state.scan_run:
         st.success("No sensitive data detected.")
