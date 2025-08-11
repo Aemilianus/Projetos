@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, RecognizerRegistry, Pattern
-from presidio_anonymizer import AnonymizerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 # --- Presidio Configuration ---
 @st.cache_resource
-def get_analyzer_and_anonymizer():
+def get_analyzer():
+    # Define o reconhecedor de CPF
     cpf_recognizer = PatternRecognizer(
         supported_entity="BR_CPF",
         name="CPF Recognizer",
@@ -13,23 +14,31 @@ def get_analyzer_and_anonymizer():
         supported_language="pt"
     )
     
+    # Cria um registro e adiciona apenas o nosso especialista em CPF
     registry = RecognizerRegistry(supported_languages=["pt"])
     registry.add_recognizer(cpf_recognizer)
     
-    analyzer = AnalyzerEngine(registry=registry, supported_languages=["pt"])
-    anonymizer = AnonymizerEngine()
+    # Configura o motor de linguagem para encontrar Nomes de Pessoas
+    provider_config = {"nlp_engine_name": "spacy", "models": [{"lang_code": "pt", "model_name": "pt_core_news_lg"}]}
+    provider = NlpEngineProvider(nlp_configuration=provider_config)
+    nlp_engine = provider.create_engine()
     
-    return analyzer, anonymizer
+    # Cria o motor de análise
+    analyzer = AnalyzerEngine(
+        registry=registry,
+        nlp_engine=nlp_engine,
+        supported_languages=["pt"]
+    )
+    return analyzer
 
-analyzer, anonymizer = get_analyzer_and_anonymizer()
+analyzer = get_analyzer()
 
 # --- Application Interface ---
 st.set_page_config(layout="wide", page_title="Privacy Partner - Excel Mockup")
 
 # Green Excel Header Bar
 st.markdown(
-    """<div style='background-color:#1D6F42;padding:10px;border-radius:5px 5px 0 0;'>
-       <h1 style='color:white;text-align:left;font-size:18px;font-weight:normal;margin:0;'>
+    """<div style='background-color:#1D6F42;padding:10px;border-radius:5px 5px 0 0;'><h1 style='color:white;text-align:left;font-size:18px;font-weight:normal;margin:0;'>
        Excel - Sensitive_Test.csv</h1></div>""",
     unsafe_allow_html=True
 )
@@ -40,8 +49,8 @@ excel_tab = tabs[3]
 
 # Sample data
 data = {
-    'Nome': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
-    'CPF': ['123.456.789-11', '148.258.127-24', '111.444.777-35', '987.654.321-00'],
+    'Nome': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos'],
+    'CPF': ['123.456.789-11', '148.258.127-24', '111.444.777-35'],
 }
 df = pd.DataFrame(data)
 
@@ -52,13 +61,13 @@ if 'original_df' not in st.session_state:
     st.session_state.original_df = df.copy()
 if 'findings' not in st.session_state:
     st.session_state.findings = []
-if 'pseudonym_map' not in st.session_state:
-    st.session_state.pseudonym_map = {}
+if 'action_taken' not in st.session_state:
+    st.session_state.action_taken = False
 
 # Main container for the "spreadsheet"
-edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor", height=250)
+edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor", height=200)
 
-# Logic for the Add-in in the "Add-ins" tab
+# Logic for the Add-in
 with excel_tab:
     if st.button("🚀 Privacy Partner Scan", help="Click to scan the spreadsheet for sensitive data."):
         with st.spinner("Analyzing spreadsheet..."):
@@ -66,13 +75,13 @@ with excel_tab:
             for index, row in edited_df.iterrows():
                 for col_name, cell_value in row.items():
                     if cell_value and isinstance(cell_value, str):
-                        results = analyzer.analyze(text=cell_value, language="pt")
+                        results = analyzer.analyze(text=cell_value, language="pt", entities=["PERSON", "BR_CPF"])
                         if results:
                             findings.append({'row': index, 'col': col_name, 'text': cell_value, 'type': results[0].entity_type})
             st.session_state.findings = findings
-            st.session_state.pseudonym_map = {} # Reset map on new scan
+            st.session_state.action_taken = False # Reseta o estado de ação
 
-# --- Sidebar acting as the Add-in's task pane ---
+# Sidebar acting as the Add-in's task pane
 with st.sidebar:
     st.title("Privacy Partner")
     st.markdown("Your privacy assistant for Excel.")
@@ -81,47 +90,46 @@ with st.sidebar:
     if st.session_state.findings:
         st.warning(f"**Alert!** {len(st.session_state.findings)} sensitive data point(s) found.")
         
-        problematic_cols = sorted(list(set([find['col'] for find in st.session_state.findings])))
-        
-        st.markdown("**1. Select Columns to Action:**")
-        selected_cols = st.multiselect("Columns with sensitive data:", options=problematic_cols, default=problematic_cols)
+        # Display summary
+        summary = {}
+        for find in st.session_state.findings:
+            summary.setdefault(find['col'], []).append(find['type'])
+        for col, types in summary.items():
+            st.markdown(f"- **Column '{col}'**: Found **{', '.join(set(types))}**.")
 
-        st.markdown("**2. Choose Action:**")
-        col_anon, col_pseudo = st.columns(2)
-        with col_anon:
-            if st.button("Anonymize Selected"):
+        st.markdown("---")
+        st.markdown("**Recommended Actions:**")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Anonymize All"):
                 anonymized_df = edited_df.copy()
                 for find in st.session_state.findings:
-                    if find['col'] in selected_cols:
-                        anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
+                    anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
                 st.session_state.df_data = anonymized_df
-                st.session_state.findings = [] # Clear findings after action
+                st.session_state.findings = []
+                st.session_state.action_taken = True
                 st.rerun()
 
-        with col_pseudo:
-            if st.button("Pseudonymize Selected"):
+        with col2:
+            if st.button("Pseudonymize All"):
                 pseudo_df = edited_df.copy()
-                temp_map = {}
                 for find in st.session_state.findings:
-                    if find['col'] in selected_cols:
-                        original_text = find['text']
-                        pseudo_text = f"{find['type']}_{abs(hash(original_text)) % 10000}"
-                        pseudo_df.at[find['row'], find['col']] = pseudo_text
-                        temp_map[pseudo_text] = original_text
-                
+                    original_text = find['text']
+                    pseudo_text = f"{find['type']}_{abs(hash(original_text)) % 10000}"
+                    pseudo_df.at[find['row'], find['col']] = pseudo_text
                 st.session_state.df_data = pseudo_df
-                st.session_state.pseudonym_map = temp_map # Save the map
-                st.session_state.findings = [] # Clear findings
+                st.session_state.findings = []
+                st.session_state.action_taken = True
                 st.rerun()
-
+    
+    # Botão de Reset que aparece após uma ação ser tomada
+    elif st.session_state.action_taken:
+        st.info("Data has been transformed.")
+        if st.button("Reset to Original"):
+            st.session_state.df_data = st.session_state.original_df.copy()
+            st.session_state.action_taken = False
+            st.rerun()
+            
     else:
         st.success("No sensitive data detected.")
-
-    # --- Reversion Logic ---
-    if st.session_state.pseudonym_map:
-        st.markdown("---")
-        st.info("Data has been pseudonymized.")
-        if st.checkbox("Simulate Admin View: Reveal Original Data"):
-            st.session_state.df_data = st.session_state.original_df.copy()
-            st.session_state.pseudonym_map = {} # Clear map after reverting
-            st.rerun()
