@@ -14,7 +14,7 @@ def get_analyzer():
         supported_language="pt"
     )
     
-    # Cria um registro e adiciona apenas o nosso especialista em CPF
+    # Cria um registro e adiciona o especialista em CPF
     registry = RecognizerRegistry(supported_languages=["pt"])
     registry.add_recognizer(cpf_recognizer)
     
@@ -61,13 +61,11 @@ if 'original_df' not in st.session_state:
     st.session_state.original_df = df.copy()
 if 'findings' not in st.session_state:
     st.session_state.findings = []
-if 'action_taken' not in st.session_state:
-    st.session_state.action_taken = False
 
 # Main container for the "spreadsheet"
 edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor", height=200)
 
-# Logic for the Add-in
+# Logic for the Add-in in the "Add-ins" tab
 with excel_tab:
     if st.button("🚀 Privacy Partner Scan", help="Click to scan the spreadsheet for sensitive data."):
         with st.spinner("Analyzing spreadsheet..."):
@@ -75,17 +73,23 @@ with excel_tab:
             for index, row in edited_df.iterrows():
                 for col_name, cell_value in row.items():
                     if cell_value and isinstance(cell_value, str):
+                        # Analisa apenas para os tipos que queremos: Nomes e CPF
                         results = analyzer.analyze(text=cell_value, language="pt", entities=["PERSON", "BR_CPF"])
                         if results:
                             findings.append({'row': index, 'col': col_name, 'text': cell_value, 'type': results[0].entity_type})
             st.session_state.findings = findings
-            st.session_state.action_taken = False # Reseta o estado de ação
 
 # Sidebar acting as the Add-in's task pane
 with st.sidebar:
     st.title("Privacy Partner")
     st.markdown("Your privacy assistant for Excel.")
     st.markdown("---")
+
+    # Botão de Reset sempre visível
+    if st.button("Reset to Original Data"):
+        st.session_state.df_data = st.session_state.original_df.copy()
+        st.session_state.findings = []
+        st.rerun()
 
     if st.session_state.findings:
         st.warning(f"**Alert!** {len(st.session_state.findings)} sensitive data point(s) found.")
@@ -102,17 +106,16 @@ with st.sidebar:
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Anonymize All"):
+            if st.button("Anonymize"):
                 anonymized_df = edited_df.copy()
                 for find in st.session_state.findings:
                     anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
                 st.session_state.df_data = anonymized_df
                 st.session_state.findings = []
-                st.session_state.action_taken = True
                 st.rerun()
 
         with col2:
-            if st.button("Pseudonymize All"):
+            if st.button("Pseudonymize"):
                 pseudo_df = edited_df.copy()
                 for find in st.session_state.findings:
                     original_text = find['text']
@@ -120,16 +123,6 @@ with st.sidebar:
                     pseudo_df.at[find['row'], find['col']] = pseudo_text
                 st.session_state.df_data = pseudo_df
                 st.session_state.findings = []
-                st.session_state.action_taken = True
                 st.rerun()
-    
-    # Botão de Reset que aparece após uma ação ser tomada
-    elif st.session_state.action_taken:
-        st.info("Data has been transformed.")
-        if st.button("Reset to Original"):
-            st.session_state.df_data = st.session_state.original_df.copy()
-            st.session_state.action_taken = False
-            st.rerun()
-            
     else:
         st.success("No sensitive data detected.")
