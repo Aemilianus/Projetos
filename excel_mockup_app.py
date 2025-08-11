@@ -38,7 +38,7 @@ excel_tab = tabs[3]
 
 # Dados de exemplo
 data = {
-    'Nome': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
+    'Name': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
     'CPF': ['123.456.789-11', '148.258.127-24', '111.444.777-35', '987.654.321-00'],
 }
 df = pd.DataFrame(data)
