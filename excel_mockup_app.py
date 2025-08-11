@@ -35,27 +35,18 @@ analyzer, anonymizer = get_analyzer_and_anonymizer()
 # --- Application Interface ---
 st.set_page_config(layout="wide", page_title="Privacy Partner - Excel Mockup")
 
-# --- NEW: Green Excel Header Bar ---
 st.markdown(
-    """
-    <div style="background-color:#1D6F42;padding:10px;border-top-left-radius:5px;border-top-right-radius:5px;">
-        <h1 style="color:white;text-align:left;font-size:18px;font-weight:normal;margin:0;">
-            Excel - Sensitive_Test.csv
-        </h1>
-    </div>
-    """,
+    """<div style="background-color:#1D6F42;padding:10px;border-top-left-radius:5px;border-top-right-radius:5px;"><h1 style="color:white;text-align:left;font-size:18px;font-weight:normal;margin:0;">Excel - Sensitive_Test.csv</h1></div>""",
     unsafe_allow_html=True
 )
 
-# Simulation of Excel's Ribbon
 st.markdown("##### File | Home | Insert | Formulas | Data | Review")
 tabs = st.tabs(["▶️ **Add-ins**", "Help", "Power Pivot"])
 excel_tab = tabs[0]
 
-# Sample data from your screenshot
 data = {
     'Name': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
-    'CPF': ['123.456.789-11', '123.456.789-11', '123.456.789-11', '123.456.789-11'],
+    'CPF': ['123.456.789-11', '148.258.127-24', '111.444.777-35', '987.654.321-00'],
     'Date': ['08/08/2025', '08/08/2025', '08/08/2025', '08/08/2025'],
     'Product': ['Shampoo', 'Shampoo', 'Shampoo', 'Shampoo'],
     'Brand': ['Kerastase', "L'Oreal Professionnel", 'Redken', 'Redken'],
@@ -64,13 +55,15 @@ data = {
 df = pd.DataFrame(data)
 
 if 'df_data' not in st.session_state:
-    st.session_state.df_data = df
+    st.session_state.df_data = df.copy()
+# Guarda uma cópia original para a reversão da pseudo-anonimização
+if 'original_df' not in st.session_state:
+    st.session_state.original_df = df.copy()
 
-# Main container for the "spreadsheet"
+
 with st.container():
-    edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor")
+    edited_df = st.data_editor(st.session_state.df_data, num_rows="dynamic", key="data_editor", height=250)
 
-# Logic for the Add-in in the "Add-ins" tab
 with excel_tab:
     st.markdown("---")
     col1, col2, col3 = st.columns([2,2,8])
@@ -86,8 +79,10 @@ with excel_tab:
                             if results:
                                 findings.append({'row': index, 'col': col_name, 'text': cell_value, 'type': results[0].entity_type})
                 st.session_state.findings = findings
+                # Guarda o estado atual para a reversão
+                st.session_state.last_edited_df = edited_df.copy()
 
-# Sidebar acting as the Add-in's task pane
+# --- Sidebar que atua como o painel do Add-in ---
 with st.sidebar:
     st.title("Privacy Partner")
     st.markdown("Your privacy assistant for Excel.")
@@ -102,15 +97,40 @@ with st.sidebar:
         st.markdown("---")
         st.markdown("**Recommended Actions:**")
 
-        if st.button("Anonymize Data"):
-            anonymized_df = edited_df.copy()
-            for find in st.session_state.findings:
-                anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
-            
-            st.session_state.df_data = anonymized_df
-            st.session_state.findings = []
-            st.success("Data has been anonymized!")
-            st.rerun()
+        col_anon, col_pseudo = st.columns(2)
+        with col_anon:
+            if st.button("Anonymize"):
+                anonymized_df = st.session_state.last_edited_df.copy()
+                for find in st.session_state.findings:
+                    anonymized_df.at[find['row'], find['col']] = f"<{find['type']}>"
+                st.session_state.df_data = anonymized_df
+                st.session_state.findings = []
+                st.success("Data has been anonymized!")
+                st.rerun()
+
+        with col_pseudo:
+            # --- BOTÃO E LÓGICA DE PSEUDO-ANONIMIZAÇÃO ADICIONADOS ---
+            if st.button("Pseudonymize"):
+                pseudo_df = st.session_state.last_edited_df.copy()
+                st.session_state.pseudonym_map = {}
+                for find in st.session_state.findings:
+                    original_text = find['text']
+                    pseudo_text = f"{find['type']}_{abs(hash(original_text)) % 10000}"
+                    pseudo_df.at[find['row'], find['col']] = pseudo_text
+                    st.session_state.pseudonym_map[pseudo_text] = original_text
+                
+                st.session_state.df_data = pseudo_df
+                st.session_state.findings = []
+                st.success("Data has been pseudonymized!")
+                st.rerun()
+                
+        # --- FUNCIONALIDADE PARA REVERTER A PSEUDO-ANONIMIZAÇÃO ---
+        if 'pseudonym_map' in st.session_state and st.session_state.pseudonym_map:
+            st.markdown("---")
+            if st.checkbox("Simulate Admin View: Reveal Original Data"):
+                # Ao marcar, restaura a planilha original que foi salva no início
+                st.session_state.df_data = st.session_state.original_df
+                st.rerun()
 
     else:
         st.success("No sensitive data detected in the spreadsheet.")
