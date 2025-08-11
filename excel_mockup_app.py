@@ -54,12 +54,12 @@ excel_tab = tabs[0]
 
 # Sample data from your screenshot
 data = {
-    'Nome': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
+    'Name': ['Ana da Silva Santos', 'Maria Da Silva', 'João Dos Santos', 'José da Silva Santos'],
     'CPF': ['123.456.789-11', '123.456.789-11', '123.456.789-11', '123.456.789-11'],
-    'Data': ['08/08/2025', '08/08/2025', '08/08/2025', '08/08/2025'],
-    'Produto': ['Shampoo', 'Shampoo', 'Shampoo', 'Shampoo'],
-    'Marca': ['Kerastase', "L'Oreal Professionnel", 'Redken', 'Redken'],
-    'Valor': [150, 120, 130, 130]
+    'Date': ['08/08/2025', '08/08/2025', '08/08/2025', '08/08/2025'],
+    'Product': ['Shampoo', 'Shampoo', 'Shampoo', 'Shampoo'],
+    'Brand': ['Kerastase', "L'Oreal Professionnel", 'Redken', 'Redken'],
+    'Value': [150, 120, 130, 130]
 }
 df = pd.DataFrame(data)
 
